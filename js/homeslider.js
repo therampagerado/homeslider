@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2017-2024 thirty bees
+ * Copyright (C) 2017-2025 thirty bees
  * Copyright (C) 2007-2016 PrestaShop SA
  *
  * thirty bees is an extension to the PrestaShop software by PrestaShop SA.
@@ -16,14 +16,13 @@
  *
  * @author    thirty bees <modules@thirtybees.com>
  * @author    PrestaShop SA <contact@prestashop.com>
- * @copyright 2017-2024 thirty bees
+ * @copyright 2017-2025 thirty bees
  * @copyright 2007-2016 PrestaShop SA
  * @license   Academic Free License (AFL 3.0)
  * PrestaShop is an internationally registered trademark of PrestaShop SA.
  */
 
 $(document).ready(function(){
-
 	if (typeof(homeslider_speed) == 'undefined')
 		homeslider_speed = 500;
 	if (typeof(homeslider_pause) == 'undefined')
@@ -32,7 +31,6 @@ $(document).ready(function(){
 		homeslider_loop = true;
     if (typeof(homeslider_width) == 'undefined')
         homeslider_width = 779;
-
 
 	if (!!$.prototype.bxSlider)
 		$('#homeslider').bxSlider({

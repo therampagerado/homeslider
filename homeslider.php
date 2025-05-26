@@ -1,6 +1,6 @@
 <?php
 /**
- * Copyright (C) 2017-2024 thirty bees
+ * Copyright (C) 2017-2025 thirty bees
  * Copyright (C) 2007-2016 PrestaShop SA
  *
  * thirty bees is an extension to the PrestaShop software by PrestaShop SA.
@@ -17,7 +17,7 @@
  *
  * @author    thirty bees <modules@thirtybees.com>
  * @author    PrestaShop SA <contact@prestashop.com>
- * @copyright 2017-2024 thirty bees
+ * @copyright 2017-2025 thirty bees
  * @copyright 2007-2016 PrestaShop SA
  * @license   Academic Free License (AFL 3.0)
  * PrestaShop is an internationally registered trademark of PrestaShop SA.
@@ -35,7 +35,6 @@ include_once(__DIR__ . '/HomeSlide.php');
 
 class HomeSlider extends Module
 {
-    const ALLOWED_EXTENSIONS = [ 'jpg', 'jpeg', 'gif', 'png' ];
     const DEFAULT_WIDTH =  1140;
     const DEFAULT_SPEED = 500;
     const DEFAULT_PAUSE = 3000;
@@ -45,7 +44,6 @@ class HomeSlider extends Module
      * @var string
      */
     protected $_html = '';
-
 
     /**
      * @throws PrestaShopDatabaseException
@@ -714,33 +712,39 @@ class HomeSlider extends Module
      */
     public function headerHTML()
     {
-        if (Tools::getValue('controller') != 'AdminModules' && Tools::getValue('configure') != $this->name) {
-            return;
+        if (Tools::getValue('controller') != 'AdminModules' || Tools::getValue('configure') != $this->name) {
+            return '';
         }
 
         $this->context->controller->addJqueryUI('ui.sortable');
-        /* Style & js for fieldset 'slides configuration' */
-        $html = '<script type="text/javascript">
-			$(function() {
-				var $mySlides = $("#slides");
-				$mySlides.sortable({
-					opacity: 0.6,
-					cursor: "move",
-					update: function() {
-						var order = $(this).sortable("serialize") + "&action=updateSlidesPosition";
-						$.post("' . $this->context->shop->physical_uri . $this->context->shop->virtual_uri . 'modules/' . $this->name . '/ajax_' . $this->name . '.php?secure_key=' . $this->getSecureKey() . '", order);
-						}
-					});
-				$mySlides.hover(function() {
-					$(this).css("cursor","move");
-					},
-					function() {
-					$(this).css("cursor","auto");
-				});
-			});
-		</script>';
 
-        return $html;
+        $ajaxUrl = $this->context->shop->getBaseURL(true)
+                 . 'modules/' . $this->name
+                 . '/ajax_' . $this->name . '.php?secure_key=' . $this->getSecureKey()
+                 . '&action=updateSlidesPosition';
+
+        return "
+    <script type=\"text/javascript\">
+      \$(function() {
+        \$('#slides').sortable({
+          axis: 'y',
+          cursor: 'move',
+          opacity: 0.6,
+          update: function() {
+            // collect IDs in order
+            var order = \$('#slides li').map(function() {
+              return this.id.replace('slide_','');
+            }).get();
+
+            // send slides[] array to PHP
+            \$.post('{$ajaxUrl}', { 'slides[]': order }, function(resp){
+              // optional: show a tiny confirmation
+            });
+          }
+        });
+      });
+    </script>
+    ";
     }
 
     /**
@@ -908,7 +912,9 @@ class HomeSlider extends Module
                         'name' => 'image',
                         'required' => true,
                         'lang' => true,
-                        'desc' => sprintf($this->l('Maximum image size: %s.'), ini_get('upload_max_filesize'))
+                        'desc' => sprintf(
+                            $this->l('Maximum image size: %s. Allowed extensions: %s.'), ini_get('upload_max_filesize'), implode(', ', ImageManager::getAllowedImageExtensions(true, true, true, null))
+                        ),
                     ),
                     array(
                         'type' => 'text',
@@ -1276,13 +1282,15 @@ class HomeSlider extends Module
         if (empty($fileEntry['name']) || empty($fileEntry['tmp_name'])) {
             return false;
         }
-        // validate file type
-        $ext = strtolower(substr(strrchr($fileEntry['name'], '.'), 1));
-        if (! in_array($ext, static::ALLOWED_EXTENSIONS)) {
-            throw new PrestaShopException(sprintf($this->l('Unsupported file extension %s'), $ext));
-        }
         if ($error = ImageManager::validateUpload($fileEntry)) {
-            throw new PrestaShopException($error);
+            // Pull just the main extensions your store actually accepts
+            $allowed = ImageManager::getAllowedImageExtensions(true, true, null, true);
+
+            $message = sprintf(
+                $this->l('Image format not recognized, allowed formats are: %s'),
+                implode(', ', $allowed)
+            );
+            throw new PrestaShopException($message);
         }
         $tempFile = tempnam(_PS_TMP_IMG_DIR_, $this->name . '_');
         if (! move_uploaded_file($fileEntry['tmp_name'], $tempFile)) {
@@ -1300,19 +1308,24 @@ class HomeSlider extends Module
      */
     protected function processImage($sourceFile, $sourceFileName)
     {
-        $imageSize = getimagesize($sourceFile);
-        if (! $imageSize) {
+        // make sure it's actually an image
+        if (!@getimagesize($sourceFile)) {
             throw new PrestaShopException($this->l('Failed to resolve image size'));
         }
-        $mimeType = strtolower(substr(strrchr($imageSize['mime'], '/'), 1));
-        if (! in_array($mimeType, static::ALLOWED_EXTENSIONS)) {
-            throw new PrestaShopException(sprintf($this->l('Unsupported mime type  %s'), $mimeType));
+
+        // 1) Extract extension, 2) check against core’s list, 3) pass extension into resize()
+        $ext = Tools::strtolower(pathinfo($sourceFileName, PATHINFO_EXTENSION));
+        $allowed = ImageManager::getAllowedImageExtensions();
+        if (!in_array($ext, $allowed)) {
+            throw new PrestaShopException(sprintf($this->l('Unsupported file extension %s'), $ext));
         }
 
-        // resize file to target destination
+        // build target filename & path
         $filename = md5(microtime()) . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '', $sourceFileName);
         $filepath = static::getImageDir() . $filename;
-        if (! ImageManager::resize($sourceFile, $filepath, null, null, $mimeType)) {
+
+        // now resize using the extension (not the mime‐type)
+        if (!ImageManager::resize($sourceFile, $filepath, null, null, $ext)) {
             throw new PrestaShopException($this->l('An error occurred during the image resizing'));
         }
         return $filename;
@@ -1336,12 +1349,12 @@ class HomeSlider extends Module
         }
 
         $dir = static::getImageDir();
+        $allowed = ImageManager::getAllowedImageExtensions();
         foreach (scandir($dir) as $file) {
-            $ext = pathinfo($file, PATHINFO_EXTENSION);
-            if (in_array($ext, static::ALLOWED_EXTENSIONS)) {
-                if (! in_array($file, $imagesToKeep)) {
-                    unlink($dir . $file);
-                }
+            if (in_array(pathinfo($file, PATHINFO_EXTENSION), $allowed)
+                && !in_array($file, $imagesToKeep)
+            ) {
+                @unlink($dir . $file);
             }
         }
     }
